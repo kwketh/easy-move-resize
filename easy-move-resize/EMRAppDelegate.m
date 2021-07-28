@@ -10,7 +10,11 @@
     self = [super init];
     if (self) {
         NSUserDefaults *userDefaults = [[NSUserDefaults alloc] initWithSuiteName:@"userPrefs"];
+        CFArrayRef modes = CGDisplayCopyAllDisplayModes(CGMainDisplayID(), NULL);
+        CGDisplayModeRef mode = (CGDisplayModeRef)CFArrayGetValueAtIndex(modes, CGMainDisplayID());
+        double refreshRate = CGDisplayModeGetRefreshRate(mode);
         preferences = [[EMRPreferences alloc] initWithUserDefaults:userDefaults];
+        moveFilterInterval = resizeFilterInterval = 1 / refreshRate;
     }
     return self;
 }
@@ -19,6 +23,8 @@ CGEventRef myCGEventCallback(CGEventTapProxy __unused proxy, CGEventType type, C
 
     EMRAppDelegate *ourDelegate = (__bridge EMRAppDelegate*)refcon;
     int keyModifierFlags = [ourDelegate modifierFlags];
+    double moveFilterInterval = [ourDelegate moveFilterInterval];
+    double resizeFilterInterval = [ourDelegate resizeFilterInterval];
     bool shouldMiddleClickResize = [ourDelegate shouldMiddleClickResize];
     CGEventType resizeModifierDown = kCGEventRightMouseDown;
     CGEventType resizeModifierDragged = kCGEventRightMouseDragged;
@@ -126,8 +132,8 @@ CGEventRef myCGEventCallback(CGEventTapProxy __unused proxy, CGEventType type, C
         [moveResize setWndPosition:thePoint];
         CFTypeRef _position;
 
-        // actually applying the change is expensive, so only do it every kMoveFilterInterval seconds
-        if (CACurrentMediaTime() - [moveResize tracking] > kMoveFilterInterval) {
+        // actually applying the change is expensive, so only do it every moveFilterInterval seconds
+        if (CACurrentMediaTime() - [moveResize tracking] > moveFilterInterval) {
             _position = (CFTypeRef) (AXValueCreate(kAXValueCGPointType, (const void *) &thePoint));
             AXUIElementSetAttributeValue(_clickedWindow, (__bridge CFStringRef) NSAccessibilityPositionAttribute, (CFTypeRef *) _position);
             if (_position != NULL) CFRelease(_position);
@@ -222,8 +228,8 @@ CGEventRef myCGEventCallback(CGEventTapProxy __unused proxy, CGEventType type, C
         [moveResize setWndPosition:cTopLeft];
         [moveResize setWndSize:wndSize];
 
-        // actually applying the change is expensive, so only do it every kResizeFilterInterval events
-        if (CACurrentMediaTime() - [moveResize tracking] > kResizeFilterInterval) {
+        // actually applying the change is expensive, so only do it every resizeFilterInterval events
+        if (CACurrentMediaTime() - [moveResize tracking] > resizeFilterInterval) {
             // only make a call to update the position if we need to
             if (resizeSection.xResizeDirection == left || resizeSection.yResizeDirection == bottom) {
                 CFTypeRef _position = (CFTypeRef)(AXValueCreate(kAXValueCGPointType, (const void *)&cTopLeft));
@@ -427,8 +433,14 @@ CGEventRef myCGEventCallback(CGEventTapProxy __unused proxy, CGEventType type, C
     }
 }
 
-- (int)modifierFlags {
+-(int)modifierFlags {
     return keyModifierFlags;
+}
+-(double)moveFilterInterval {
+    return moveFilterInterval;
+}
+-(double)resizeFilterInterval {
+    return resizeFilterInterval;
 }
 -(BOOL)shouldBringWindowToFront {
     return [preferences shouldBringWindowToFront];
